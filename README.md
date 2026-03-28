@@ -1,427 +1,514 @@
-# Airbnb Open Data - Power BI Project Documentation
+# IBM HR Employee Attrition Power BI Guide
 
-## 1) Dataset Overview and Project Role
+This guide is a complete end-to-end Power BI project workflow for the `WA_Fn-UseC_-HR-Employee-Attrition.csv` dataset. It is written for a junior analyst and uses only the Power BI Desktop interface and Power Query Editor menus. No code or M language is required.
 
-This project uses a single source file: `Airbnb_Open_Data.csv`.
+## 1. Data & Domain Understanding
 
-- **Rows:** 102,599
-- **Columns:** 26
-- **Grain (row level):** one Airbnb listing record
-- **Primary analytical goal:** analyze listing distribution, pricing, host behavior, review performance, and availability across NYC areas.
+### Business context
+Employee attrition is the voluntary or involuntary loss of employees from an organization. In HR analytics, the goal is to understand the drivers behind attrition so business leaders can improve retention, reduce recruitment costs, and maintain productivity. This dataset contains employee records from an IBM sample HR analytics project, including demographic, job, compensation, satisfaction, and career history details.
 
-### Why this CSV matters in the project
+### Target variable
+- `Attrition` – This is the target variable. It contains `Yes` or `No` values.
+- Use it to measure attrition rate, compare groups, and build attrition-focused reports.
 
-This CSV is the operational core of the report. It contains:
-- Listing identity and host identity
-- Geographic segmentation (borough + neighborhood + coordinates)
-- Pricing and service fee values
-- Demand proxies (reviews, review rate, reviews/month)
-- Supply constraints (minimum nights, availability)
-- Booking policy context (instant bookable + cancellation policy)
+### Column categories
+The dataset has 35 columns. Grouping them into logical categories helps structure cleaning, modeling, and reporting.
 
-Because this is a raw export, it contains quality issues (missing values, inconsistent text, duplicated rows, outliers, invalid ranges). A strong Power Query pipeline and clean star schema are required before building visuals.
+#### Demographics
+- `Age`
+- `Gender`
+- `MaritalStatus`
+- `DistanceFromHome`
+- `Over18` (constant)
+- `EmployeeCount` (constant)
+- `StandardHours` (constant)
+- `EmployeeNumber` (unique row identifier)
 
----
+#### Job information
+- `BusinessTravel`
+- `Department`
+- `JobRole`
+- `JobLevel`
+- `JobInvolvement`
+- `JobSatisfaction`
+- `EnvironmentSatisfaction`
+- `RelationshipSatisfaction`
+- `WorkLifeBalance`
+- `PerformanceRating`
+- `OverTime`
 
-## 2) Column-by-Column Meaning (Data Dictionary)
+#### Compensation
+- `DailyRate`
+- `HourlyRate`
+- `MonthlyIncome`
+- `MonthlyRate`
+- `PercentSalaryHike`
+- `StockOptionLevel`
 
-| Column | Meaning | Recommended Business Type |
-|---|---|---|
-| `id` | Listing ID (listing-level unique identifier in source, but duplicates exist in raw data) | Text / Whole Number key |
-| `NAME` | Listing title shown to users | Text |
-| `host id` | Host identifier | Text / Whole Number key |
-| `host_identity_verified` | Whether host profile is verified (`verified`/`unconfirmed`) | Categorical |
-| `host name` | Host display name | Text |
-| `neighbourhood group` | Borough/group (e.g., Manhattan, Brooklyn) | Categorical |
-| `neighbourhood` | Neighborhood inside borough | Categorical |
-| `lat` | Latitude coordinate | Decimal |
-| `long` | Longitude coordinate | Decimal |
-| `country` | Country name (mostly United States) | Categorical |
-| `country code` | Country code (mostly US) | Categorical |
-| `instant_bookable` | Listing can be instantly booked (`TRUE`/`FALSE`) | Boolean |
-| `cancellation_policy` | Cancellation policy category (`flexible`,`moderate`,`strict`) | Categorical |
-| `room type` | Inventory type (`Entire home/apt`,`Private room`,`Shared room`,`Hotel room`) | Categorical |
-| `Construction year` | Property construction year | Whole Number |
-| `price` | Listing price (currency-formatted text in raw data) | Decimal (currency) |
-| `service fee` | Service fee (currency-formatted text in raw data) | Decimal (currency) |
-| `minimum nights` | Minimum required stay nights | Whole Number |
-| `number of reviews` | Total reviews count | Whole Number |
-| `last review` | Date of most recent review | Date |
-| `reviews per month` | Average monthly review frequency | Decimal |
-| `review rate number` | Rating score bucket (1 to 5) | Whole Number |
-| `calculated host listings count` | Number of active listings associated with the host | Whole Number |
-| `availability 365` | Available nights in a year (expected 0-365) | Whole Number |
-| `house_rules` | Free-text listing house rules | Text |
-| `license` | License field (almost entirely blank in this file) | Text |
+#### Satisfaction & performance
+- `EnvironmentSatisfaction`
+- `JobSatisfaction`
+- `RelationshipSatisfaction`
+- `WorkLifeBalance`
+- `JobInvolvement`
+- `PerformanceRating`
 
----
+#### Career history
+- `NumCompaniesWorked`
+- `TotalWorkingYears`
+- `TrainingTimesLastYear`
+- `YearsAtCompany`
+- `YearsInCurrentRole`
+- `YearsSinceLastPromotion`
+- `YearsWithCurrManager`
 
-## 3) Power Query Data Cleaning and Transformation (Required)
+### Columns to remove
+These columns are constant across every row and are usually safe to remove:
+- `EmployeeCount` = 1 for every employee
+- `StandardHours` = 80 for every employee
+- `Over18` = Y for every employee
 
-The following steps should be implemented in Power Query in this order.
-
-### 3.1 Import and basic standardization
-
-1. Load `Airbnb_Open_Data.csv` using `UTF-8`.
-2. Trim and clean text for all text columns (`Text.Trim`, `Text.Clean`).
-3. Standardize column names to modeling-friendly format:
-   - Example: `host id` -> `HostID`, `Construction year` -> `ConstructionYear`, `availability 365` -> `Availability365`.
-
-### 3.2 Remove exact duplicates
-
-1. Remove full-row duplicates (`Home > Remove Rows > Remove Duplicates` on all columns).
-2. Then remove duplicate listing IDs with a deterministic rule:
-   - Sort by `LastReview` descending, then keep first row per `ListingID` (or choose most complete row by non-null count).
-
-> Profiling result from this file: **541 exact duplicate rows** were detected.
-
-### 3.3 Data type fixes
-
-Set explicit types:
-- `ListingID`, `HostID`: Text (safer for IDs)
-- `Latitude`, `Longitude`, `ReviewsPerMonth`, `Price`, `ServiceFee`: Decimal Number
-- `ConstructionYear`, `MinimumNights`, `NumberOfReviews`, `ReviewRateNumber`, `CalculatedHostListingsCount`, `Availability365`: Whole Number
-- `LastReview`: Date
-- `InstantBookable`: True/False
-
-### 3.4 Currency text cleanup (`price`, `service fee`)
-
-Raw values include `$`, commas, and trailing spaces (example: `"$1,060 "`).
-
-Transform:
-1. Replace `$` with empty text.
-2. Replace `,` with empty text.
-3. Trim spaces.
-4. Convert to Decimal Number.
-
-### 3.5 Boolean normalization
-
-`instant_bookable` values are `TRUE`/`FALSE` (text).
-- Convert to Boolean.
-- Replace null with `false` or `Unknown` (if keeping a category dimension).
-
-### 3.6 Categorical value standardization
-
-Fix typos/inconsistencies:
-- `brookln` -> `Brooklyn`
-- `manhatan` -> `Manhattan`
-
-Normalize casing for all categories:
-- Proper case for borough/neighborhood/room type/policy.
-
-### 3.7 Missing value treatment
-
-Recommended handling by column type:
-
-- **Critical keys (`ListingID`, `HostID`):** remove rows if missing (none expected after import).
-- **Location (`NeighbourhoodGroup`, `Neighbourhood`, `Lat`, `Long`):**
-  - If coordinates missing, drop rows for map analysis or flag with `GeoValid = 0`.
-  - If borough missing but neighborhood exists, infer from lookup table if possible.
-- **`LastReview` and `ReviewsPerMonth`:**
-  - Keep nulls (they often indicate no reviews yet).
-  - Create flag `HasReview = LastReview <> null`.
-- **`HouseRules`:**
-  - Replace null with `"Not Provided"`.
-- **`License`:**
-  - Because it is almost fully missing, do not use in KPIs.
-  - Keep as informational field only.
-
-### 3.8 Range and outlier validation rules
-
-Apply rule-based cleaning with audit columns:
-
-- `MinimumNights < 1` -> set to null or floor to 1 (business rule needed)
-- `Availability365 < 0` or `> 365` -> set to null (invalid range)
-- `ReviewRateNumber` outside 1-5 -> set null
-- `ConstructionYear` outside plausible range (e.g., 1800-current year) -> set null
-- `LastReview` future date -> set null
-
-> Profiling found in this file:
-- `minimum nights` has negative values (13 rows)
-- `availability 365` has negatives (432 rows) and values above 365 (2,782 rows)
-- a few future `last review` dates exist
-
-### 3.9 Add transformation-derived columns in Power Query
-
-Create these columns before model load:
-- `PricePerNightNet = Price - ServiceFee`
-- `ServiceFeePct = ServiceFee / Price`
-- `ListingAge = Date.Year(DateTime.LocalNow()) - ConstructionYear`
-- `ReviewRecencyDays = Duration.Days(Date.From(DateTime.LocalNow()) - LastReview)` (null-safe)
-- `MinimumNightsBand` (1-3, 4-7, 8-30, 31+)
-- `AvailabilityBand` (0, 1-90, 91-180, 181-365)
-
-### 3.10 Keep/Remove columns for analytics
-
-Keep all analytical columns; optionally move long text columns (`HouseRules`) to a detail table if model size/performance becomes an issue.
+### Special notes
+- `EmployeeNumber` is a unique identifier for each record. Keep it as the row-level key in the main fact table.
+- `Attrition` is the binary outcome used for reporting and calculations.
+- The six satisfaction/rating fields are numeric codes. Use readable label columns for clarity in reports.
 
 ---
 
-## 4) Data Modeling Design (Star Schema)
+## 2. Data Cleaning in Power BI Desktop
 
-Even with one CSV, model it as a star schema for performance and maintainability.
+### Step 1: Load the CSV file
+1. Open Power BI Desktop.
+2. On the ribbon, go to `Home` → `Get Data`.
+3. Select `Text/CSV` and click `Connect`.
+4. Browse to `Dataset/WA_Fn-UseC_-HR-Employee-Attrition.csv` and click `Open`.
+5. In the preview window, click `Transform Data` to open Power Query Editor.
 
-## 4.1 Recommended tables
+### Step 2: Remove redundant columns
+1. In Power Query Editor, hold `Ctrl` and click the following column headers:
+   - `EmployeeCount`
+   - `StandardHours`
+   - `Over18`
+2. Right-click any selected header and choose `Remove`.
+3. Optionally remove `EmployeeNumber` from the report visuals later if you do not need it.
 
-### Fact table
-- **`FactListings`** (one row per listing)
-  - Keys: `ListingID`, `HostID`, `LocationKey`, `PolicyKey`, `RoomTypeKey`, `DateKey_LastReview`
-  - Numeric fields: `Price`, `ServiceFee`, `MinimumNights`, `NumberOfReviews`, `ReviewsPerMonth`, `ReviewRateNumber`, `Availability365`, etc.
+### Step 3: Verify and correct data types
+1. In Power Query Editor, look at the type icon (ABC, 123, calendar, etc.) on each column header.
+2. If any column has the wrong type, click the type icon and select the correct type.
+3. Recommended types:
+   - `Age` → Whole Number
+   - `Attrition` → Text
+   - `BusinessTravel` → Text
+   - `DailyRate`, `HourlyRate`, `MonthlyIncome`, `MonthlyRate` → Whole Number
+   - `DistanceFromHome` → Whole Number
+   - `Education` → Whole Number
+   - `EducationField` → Text
+   - `EnvironmentSatisfaction`, `JobInvolvement`, `JobLevel`, `JobSatisfaction`, `RelationshipSatisfaction`, `WorkLifeBalance`, `PerformanceRating`, `StockOptionLevel`, `TrainingTimesLastYear`, `YearsAtCompany`, `YearsInCurrentRole`, `YearsSinceLastPromotion`, `YearsWithCurrManager`, `NumCompaniesWorked`, `TotalWorkingYears` → Whole Number
+   - `Department`, `Gender`, `JobRole`, `MaritalStatus`, `OverTime` → Text
 
-### Dimension tables
-- **`DimHost`**
-  - `HostID` (PK), `HostName`, `HostIdentityVerified`, `CalculatedHostListingsCount`
-- **`DimLocation`**
-  - `LocationKey` (PK), `NeighbourhoodGroup`, `Neighbourhood`, `Country`, `CountryCode`, `Latitude`, `Longitude`
-- **`DimRoomType`**
-  - `RoomTypeKey` (PK), `RoomType`
-- **`DimPolicy`**
-  - `PolicyKey` (PK), `CancellationPolicy`, `InstantBookable`
-- **`DimDate`**
-  - Standard date table for `LastReview` (Year, Quarter, Month, MonthName, etc.)
+### Step 4: Check for nulls and blank rows
+1. In Power Query Editor, go to the `View` tab.
+2. Enable `Column quality`, `Column profile`, and `Column distribution`.
+3. Inspect the top of each column for any `Error` or `Empty` markers.
+4. If there are blank or null rows, go to the `Home` tab.
+5. Select `Remove Rows` → `Remove Blank Rows`.
 
-Optional:
-- **`DimReviewBand`** (rating bands, review velocity bands)
-- **`DimNightsBand`** (minimum-night buckets)
+### Step 5: (Your actual workflow) Ratings replaced in-place instead of new label columns
+Note: you indicated you changed approach for the satisfaction/rating fields. Instead of adding new label columns, you converted those numeric columns to text and replaced their numeric codes with readable text labels directly. The steps below document that in-UI workflow and the implications for modeling.
 
-## 4.2 Relationships
+1. In Power Query Editor, select one of the numeric satisfaction/rating columns (for example `JobSatisfaction`).
+2. Click the type icon on the column header and choose `Text` to change the column's data type to `Text`.
+3. With the column still selected, go to the `Transform` tab (or right-click the column header) and choose `Replace Values`.
+4. In the `Replace Values` dialog set `Value To Find` to the numeric code (for example `1`) and `Replace With` to the label (for example `Low`). Click `OK`.
+5. Repeat `Transform` → `Replace Values` for each numeric code you want to replace (e.g., `2` → `Medium`, `3` → `High`, `4` → `Very High`).
+6. Repeat steps 1–5 for each of the satisfaction/rating fields you changed (these include `EnvironmentSatisfaction`, `JobSatisfaction`, `RelationshipSatisfaction`, `WorkLifeBalance`, `JobInvolvement`, and `PerformanceRating`).
 
-Use single-direction, many-to-one relationships from `FactListings` to dimensions:
+Important note: By changing the original columns to `Text` and replacing values in-place, you have overwritten the numeric codes in those columns. If you want to keep numeric versions for aggregation or averaging, create a `Reference` query later and cast the field back to `Whole Number` there (instructions in the Data Modeling section). Otherwise use these text-labeled columns as categorical labels and rely on other numeric fields (or recreated numeric copies) for measures.
 
-- `FactListings[HostID]` -> `DimHost[HostID]`
-- `FactListings[LocationKey]` -> `DimLocation[LocationKey]`
-- `FactListings[RoomTypeKey]` -> `DimRoomType[RoomTypeKey]`
-- `FactListings[PolicyKey]` -> `DimPolicy[PolicyKey]`
-- `FactListings[LastReviewDate]` -> `DimDate[Date]`
+### Step 6: Your created columns — `IncomeBand` and `AgeBand`
+You mentioned you only created `IncomeBand` and `AgeBand` and kept the original columns.
 
-### Key design notes
-- Keep surrogate keys in dimensions where possible (`LocationKey`, `PolicyKey`, etc.).
-- Preserve original natural keys (`ListingID`, `HostID`) for traceability.
-- Avoid bi-directional filtering unless a specific business case requires it.
+Create `IncomeBand` (UI steps):
+1. In Power Query Editor go to `Add Column` → `Conditional Column`.
+2. Set `New column name` to `IncomeBand`.
+3. Under `Column name`, choose `MonthlyIncome`.
+4. Add clauses exactly as you prefer (example):
+   - If `is less than or equal to` `3000` then `Low`
+   - Else if `is less than or equal to` `6000` then `Medium`
+   - Else if `is less than or equal to` `9000` then `High`
+   - Else `Very High` (default `Else` output)
+5. Click `OK`.
 
----
+Create `AgeBand` (UI steps):
+1. In Power Query Editor select `Age` and go to `Add Column` → `Conditional Column`.
+2. Set `New column name` to `AgeBand`.
+3. Add clauses for bins (example 5-year bins):
+   - If `is less than or equal to` `24` then `20-24`
+   - Else if `is less than or equal to` `29` then `25-29`
+   - Continue similarly for other ranges.
+4. Click `OK`.
 
-## 5) DAX Measures and Calculated Columns
+Because you kept the original columns, you can use numeric `Age`/satisfaction columns for calculations (if still numeric) or the text replacements / bands for labeling and slicers.
 
-Below is a complete baseline measure set for a production-quality report.
+### Step 7: Rename columns for readability
+1. In Power Query Editor, double-click any column header text.
+2. Type the new name and press `Enter`.
+3. Recommended rename examples:
+   - `EmployeeNumber` → `EmployeeID` (optional)
+   - `NumCompaniesWorked` → `CompanyCount`
+   - `YearsInCurrentRole` → `YearsInRole`
+   - `YearsWithCurrManager` → `YearsWithManager`
+4. Keep names consistent and user-friendly.
 
-### 5.1 Core volume and coverage
+### Step 8: Apply changes
+1. In Power Query Editor, go to the `Home` tab.
+2. Click `Close & Apply`.
+3. Wait for Power BI to apply the changes and return to the report view.
+### Step 9: Rename columns for readability
+1. In Power Query Editor, double-click any column header text.
+2. Type the new name and press `Enter`.
+3. Recommended rename examples:
+   - `EmployeeNumber` → `EmployeeID` (optional)
+   - `NumCompaniesWorked` → `CompanyCount`
+   - `YearsInCurrentRole` → `YearsInRole`
+   - `YearsWithCurrManager` → `YearsWithManager`
+4. Keep names consistent and user-friendly.
 
-- `Total Listings = DISTINCTCOUNT(FactListings[ListingID])`
-- `Total Hosts = DISTINCTCOUNT(FactListings[HostID])`
-- `Total Reviews = SUM(FactListings[NumberOfReviews])`
-- `Avg Reviews per Listing = DIVIDE([Total Reviews], [Total Listings])`
-
-Why needed: establishes market size and listing engagement.
-
-### 5.2 Pricing and fee metrics
-
-- `Avg Price = AVERAGE(FactListings[Price])`
-- `Median Price = MEDIAN(FactListings[Price])`
-- `Min Price = MIN(FactListings[Price])`
-- `Max Price = MAX(FactListings[Price])`
-- `Total Service Fee = SUM(FactListings[ServiceFee])`
-- `Avg Service Fee = AVERAGE(FactListings[ServiceFee])`
-- `Service Fee % = DIVIDE([Total Service Fee], SUM(FactListings[Price]))`
-- `Avg Net Price = AVERAGE(FactListings[Price] - FactListings[ServiceFee])`
-
-Why needed: compares gross pricing vs effective earnings and fee burden.
-
-### 5.3 Availability and stay constraints
-
-- `Avg Availability Days = AVERAGE(FactListings[Availability365])`
-- `Occupancy Proxy % = 1 - DIVIDE([Avg Availability Days], 365)`
-- `Avg Minimum Nights = AVERAGE(FactListings[MinimumNights])`
-- `High Min Night Listings = CALCULATE([Total Listings], FactListings[MinimumNights] >= 30)`
-- `% High Min Night Listings = DIVIDE([High Min Night Listings], [Total Listings])`
-
-Why needed: indicates supply tightness and booking flexibility.
-
-### 5.4 Quality and trust
-
-- `Avg Rating = AVERAGE(FactListings[ReviewRateNumber])`
-- `Verified Hosts = CALCULATE([Total Hosts], DimHost[HostIdentityVerified] = "verified")`
-- `% Verified Hosts = DIVIDE([Verified Hosts], [Total Hosts])`
-- `Instant Bookable Listings = CALCULATE([Total Listings], DimPolicy[InstantBookable] = TRUE())`
-- `% Instant Bookable = DIVIDE([Instant Bookable Listings], [Total Listings])`
-
-Why needed: tracks trust signals and booking convenience.
-
-### 5.5 Time intelligence (with `DimDate`)
-
-- `Reviews YTD = TOTALYTD([Total Reviews], DimDate[Date])`
-- `Reviews Last 12M = CALCULATE([Total Reviews], DATESINPERIOD(DimDate[Date], MAX(DimDate[Date]), -12, MONTH))`
-- `Listings With Recent Review (90D) = CALCULATE([Total Listings], FactListings[ReviewRecencyDays] <= 90)`
-
-Why needed: shows trend momentum and recency of listing activity.
-
-### 5.6 Recommended calculated columns
-
-Use calculated columns only for segmentation logic reused across visuals:
-
-- `Price Band` (`<100`, `100-199`, `200-499`, `500+`)
-- `Rating Band` (`Low`, `Mid`, `High`)
-- `Availability Band` (`Low`, `Medium`, `High`)
-- `Minimum Nights Band`
-
-Prefer Power Query for heavy transformations; use DAX columns for report-specific slicing.
+### Step 10: Apply changes
+1. In Power Query Editor, go to the `Home` tab.
+2. Click `Close & Apply`.
+3. Wait for Power BI to apply the changes and return to the report view.
 
 ---
 
-## 6) Power BI Report Design (Most Important Section)
+## 3. Data Modeling
 
-Build the report as a multi-page analytical product with clear decision flow.
+### Recommended schema
+Use a star schema with one central fact table and supporting dimension tables.
 
-## 6.1 Report pages and purpose
+- Fact table: `FactEmployee`
+- Dimension tables:
+  - `DimDepartment`
+  - `DimJobRole`
+  - `DimEducation`
+  - `DimSatisfaction`
 
-### Page 1 - Executive Overview (KPI dashboard)
+### Create the main fact table
+1. In Power Query Editor, rename the main query to `FactEmployee`.
+2. Keep all cleaned columns in this query.
+3. Ensure the fact table includes `EmployeeID`, `Attrition`, `AttritionFlag`, numeric measures, and dimension keys.
 
-**Purpose:** one-screen business health.
+### Create dimension tables by referencing the main query (recommended)
+Use `Reference` queries so the main `FactEmployee` stays as the authoritative table and each dimension is derived from it. This keeps the ETL logic centralized and avoids accidental divergence.
 
-Recommended visuals:
-- KPI cards: `Total Listings`, `Total Hosts`, `Avg Price`, `Median Price`, `% Instant Bookable`, `Avg Rating`
-- Trend line: `Total Reviews` by month
-- Donut/stacked bar: listing share by `Room Type`
-- Bar chart: listings by `Neighbourhood Group`
-- Map: listing density by coordinates
+Steps to create a dimension via `Reference` (UI-only):
+1. In Power Query Editor, right-click the `FactEmployee` query and choose `Reference` (not `Duplicate`). This creates a new query that points to the output of `FactEmployee`.
+2. Rename the new query to the intended dimension name (for example `DimDepartment`).
+3. With `DimDepartment` selected, right-click on the `Department` column header and choose `Remove Other Columns` to keep only `Department`.
+4. On the `Home` tab, choose `Remove Rows` → `Remove Duplicates` to create a unique list of departments.
+5. Verify the data type by clicking the type icon on `Department` and set it to `Text`.
+6. Rename the column if desired (double-click header).
+7. Repeat these steps for other dimensions.
 
-Expected insight:
-- Where supply is concentrated
-- Whether market looks premium or budget by area
-- How active and trusted listings are overall
+Suggested dimension contents and exact UI steps:
 
-### Page 2 - Pricing Intelligence
+#### DimJobRole
+- Right-click `FactEmployee` → `Reference` → rename `DimJobRole`.
+- Right-click `JobRole` → `Remove Other Columns`.
+- Optionally keep `JobLevel` and `Department`: select `JobRole`, `JobLevel`, `Department` then right-click → `Remove Other Columns`.
+- `Home` → `Remove Rows` → `Remove Duplicates` on `JobRole`.
+- Check types (type icon) and rename columns via double-click.
 
-**Purpose:** explain price behavior.
+#### DimEducation
+- Right-click `FactEmployee` → `Reference` → rename `DimEducation`.
+- Keep `Education`, `EducationField`, and if you created one, `EducationLabel` (or the replaced text values).
+- `Home` → `Remove Rows` → `Remove Duplicates` on `Education`.
+- Verify types and rename as needed.
 
-Recommended visuals:
-- Box plot (or custom visual): `Price` by `Neighbourhood Group`
-- Heatmap/matrix: `Neighbourhood` x `Room Type` with `Avg Price`
-- Scatter: `Price` vs `NumberOfReviews` (size = `Availability365`)
-- Decomposition tree: drivers of `Avg Price`
+#### DimSatisfaction (optional)
+- Right-click `FactEmployee` → `Reference` → rename `DimSatisfaction`.
+- Keep the satisfaction label columns you created or the satisfaction fields you replaced in-place:
+   `EnvironmentSatisfaction`, `JobSatisfaction`, `RelationshipSatisfaction`, `WorkLifeBalance`, `JobInvolvement`, `PerformanceRating`.
+- `Home` → `Remove Rows` → `Remove Duplicates` to get distinct combinations used for slicers/legends.
 
-Expected insight:
-- High-value neighborhoods
-- Which room type drives premium pricing
-- Whether high price correlates with demand/reviews
+Tip about your in-place replacements: because you converted satisfaction fields to `Text` and replaced codes in the main table, you can use those text fields directly in your dimension lookups for labels and slicers. If you later need numeric aggregations (for example average job satisfaction), create a `Reference` of `FactEmployee` and in that referenced query change the satisfaction field's type back to `Whole Number` via the type icon, then `Close & Apply` — use that numeric version only for measures.
 
-### Page 3 - Host & Policy Analysis
+### Load dimension tables
+1. After preparing each referenced query, click `Close & Apply` on the `Home` tab in Power Query Editor.
+2. Power BI will load the fact and dimension tables into the data model.
 
-**Purpose:** understand host profile and booking policies.
+### Set up relationships in Model view (UI step-by-step)
+1. Go to the `Model` view in Power BI Desktop (left-hand vertical bar, the model icon).
+2. If autosaved relationships are not present, manually create them by dragging fields:
+    - Click `FactEmployee[Department]` and drag to `DimDepartment[Department]`.
+    - Click `FactEmployee[JobRole]` and drag to `DimJobRole[JobRole]`.
+    - Click `FactEmployee[Education]` and drag to `DimEducation[Education]`.
+    - For satisfaction labels, drag `FactEmployee[JobSatisfaction]` (or the label field) to `DimSatisfaction[JobSatisfaction]`.
+3. After each relationship is created, click the relationship line to open the properties pane.
+    - Confirm `Cardinality` is `Many to one (*:1)`.
+    - Set `Cross filter direction` to `Single` (from dimension to fact) unless you specifically need both directions.
+    - If `EmployeeID` is used as a primary key in `FactEmployee`, do not create a dimension on it; it stays as a fact key.
+4. Alternatively use `Manage relationships` (Modeling → Manage relationships) to edit cardinality and filter directions explicitly.
 
-Recommended visuals:
-- Bar chart: verified vs unconfirmed host counts
-- Stacked bar: cancellation policy by borough
-- KPI: `% Verified Hosts`, `% Instant Bookable`
-- Table: top hosts by listing count and average rating
+### Relationship table (expanded)
+| Fact table column | Dimension table | Dimension key | Cardinality | Cross-filter direction |
+|-------------------|-----------------|---------------|-------------|------------------------|
+| `FactEmployee[Department]` | `DimDepartment` | `DimDepartment[Department]` | Many-to-one (*:1) | Single |
+| `FactEmployee[JobRole]` | `DimJobRole` | `DimJobRole[JobRole]` | Many-to-one (*:1) | Single |
+| `FactEmployee[Education]` | `DimEducation` | `DimEducation[Education]` | Many-to-one (*:1) | Single |
+| `FactEmployee[JobSatisfaction]` (label) | `DimSatisfaction` | `DimSatisfaction[JobSatisfaction]` | Many-to-one (*:1) | Single |
 
-Expected insight:
-- Trust and operational profile by location
-- Policy strictness and booking friction patterns
-
-### Page 4 - Availability & Demand Signals
-
-**Purpose:** infer demand pressure and listing utilization.
-
-Recommended visuals:
-- Histogram: `Availability365` distribution
-- Bar: `Minimum Nights Band` share
-- Line: `Reviews Last 12M`
-- Scatter: `ReviewsPerMonth` vs `Availability365`
-
-Expected insight:
-- Potentially high-demand zones (high reviews, lower availability)
-- Whether strict minimum nights reduce market accessibility
-
-### Page 5 - Listing Detail Explorer
-
-**Purpose:** drill-through for detailed analysis and quality checks.
-
-Recommended visuals:
-- Detail table with conditional formatting:
-  - Listing, host, neighborhood, room type, price, rating, availability, minimum nights
-- Drill-through from any page by `ListingID` or `HostID`
-- Optional text panel for `HouseRules`
-
-Expected insight:
-- Row-level explainability and exception investigation.
-
-## 6.2 Slicers and filters (global)
-
-Use top horizontal slicers on every page:
-- `Neighbourhood Group`
-- `Neighbourhood`
-- `Room Type`
-- `Cancellation Policy`
-- `Host Identity Verified`
-- `Instant Bookable`
-- `Price Band`
-- Date slicer on `Last Review`
-
-Add a reset button/bookmark and synced slicers across pages.
-
-## 6.3 Layout and UX standards
-
-- Use a 12-column grid layout for consistent alignment.
-- Keep KPI cards in top row, trend/segmentation visuals in center, detail context at bottom.
-- Use consistent color semantics:
-  - Positive/trust: green
-  - Caution/outlier: amber/red
-- Include dynamic titles reflecting filter context.
-- Add tooltip pages for borough and neighborhood deep context.
-
-## 6.4 KPI shortlist for stakeholders
-
-Minimum stakeholder-ready KPI set:
-- Total Listings
-- Active Review Coverage (% with at least one review)
-- Avg Price / Median Price
-- Avg Rating
-- % Verified Hosts
-- % Instant Bookable
-- Occupancy Proxy %
-- Top 5 Neighborhoods by Listings and by Avg Price
+> Note: If you need to perform numeric aggregations on satisfaction, create a numeric copy in a referenced query solely for measures instead of overwriting the main table values.
 
 ---
 
-## 7) Data Quality Notes Observed in This File
+## 4. DAX Measures
 
-From full profiling of `Airbnb_Open_Data.csv`:
+Create the following measures on the `FactEmployee` table using `Modeling` → `New measure`.
 
-- 541 exact duplicate rows exist.
-- `license` is effectively unusable (almost all blank).
-- Missing `house_rules` is very high (~50%).
-- `last review` and `reviews per month` are missing for ~15.5% rows (likely no-review listings).
-- Invalid ranges exist:
-  - negative `minimum nights`
-  - negative and >365 values in `availability 365`
-- Category typos exist (`brookln`, `manhatan`).
+### Total Employees
+```DAX
+Total Employees = COUNTROWS(FactEmployee)
+```
+- Counts all rows in the employee fact table.
 
-These issues should be fixed during Power Query preparation before loading to model.
+### Attrition Count
+```DAX
+Attrition Count = CALCULATE(
+    COUNTROWS(FactEmployee),
+    FactEmployee[Attrition] = "Yes"
+)
+```
+- Counts employees whose `Attrition` value is `Yes`.
+
+### Attrition Rate (%)
+```DAX
+Attrition Rate (%) =
+DIVIDE(
+    [Attrition Count],
+    [Total Employees],
+    0
+) * 100
+```
+- Calculates the percent of employees who attrited.
+
+### Average Monthly Income
+```DAX
+Average Monthly Income = AVERAGE(FactEmployee[MonthlyIncome])
+```
+- Calculates the average monthly income across the selected employees.
+
+### Average Age
+```DAX
+Average Age = AVERAGE(FactEmployee[Age])
+```
+- Calculates the average age.
+
+### Average Job Satisfaction
+```DAX
+Average Job Satisfaction = AVERAGE(FactEmployee[JobSatisfaction])
+```
+- Calculates the average numeric job satisfaction level.
+
+### Overtime Attrition Rate
+```DAX
+Overtime Attrition Rate =
+CALCULATE(
+    [Attrition Rate (%)],
+    FactEmployee[OverTime] = "Yes"
+)
+```
+- Measures attrition rate for employees who work overtime.
+
+### Non-Overtime Attrition Rate
+```DAX
+Non-Overtime Attrition Rate =
+CALCULATE(
+    [Attrition Rate (%)],
+    FactEmployee[OverTime] = "No"
+)
+```
+- Measures attrition rate for employees who do not work overtime.
+
+### Dynamic Title
+```DAX
+Dynamic Title =
+"Attrition Overview for " &
+IF(
+    HASONEVALUE(DimDepartment[Department]),
+    VALUES(DimDepartment[Department]),
+    "All Departments"
+)
+```
+- Creates a dynamic report title based on the selected department.
+
+### High Risk Flag
+```DAX
+High Risk Flag =
+IF(
+    AND(
+        SELECTEDVALUE(FactEmployee[OverTime]) = "Yes",
+        SELECTEDVALUE(FactEmployee[JobSatisfaction]) <= 2,
+        SELECTEDVALUE(FactEmployee[YearsAtCompany]) <= 3
+    ),
+    1,
+    0
+)
+```
+- Flags employees who are working overtime, have low job satisfaction, and are early in their tenure.
 
 ---
 
-## 8) Suggested Project Folder Outputs
+## 5. Reports & Visualizations
 
-Recommended structure after implementation:
+Create a three-page report with consistent formatting and slicer interaction.
 
-- `README.md` (this document)
-- `data/` (raw CSV, optional cleaned extracts)
-- `powerquery/` (M scripts or transformation notes)
-- `model/` (schema diagram image)
-- `dax/` (measure definitions)
-- `report/` (screenshots or exported PDF of final dashboard)
+### Common report setup
+- Use a consistent color theme:
+  - Red for attrition-related metrics and visuals.
+  - Green for retention or positive outcomes.
+  - Blue for neutral or supporting visuals.
+- Use `View` → `Sync slicers` to sync slicers across all report pages.
+- Use `View` → `Mobile Layout` to build a mobile version after the main report is complete.
+- Right-click each visual and choose `Edit alt text` to add accessibility descriptions.
+- When finished, publish with `Home` → `Publish`.
+
+### Page 1: Attrition Overview
+
+#### KPI cards
+1. Create four `Card` visuals from the Visualizations pane.
+2. Drag the following measures into each card:
+   - `Total Employees`
+   - `Attrition Count`
+   - `Attrition Rate (%)`
+   - `Average Monthly Income`
+3. Format each card in the `Format` pane with a clear title and data label.
+4. Use red data color for attrition measures and blue/green for positive totals.
+
+#### Donut chart by gender
+1. Add a `Donut chart` visual.
+2. Drag `Gender` to `Legend`.
+3. Drag `Attrition Count` to `Values`.
+4. In the `Format` pane, turn on `Detail labels` and choose `Category, data value`.
+5. Sort by `Attrition Count` in descending order.
+
+#### Clustered bar chart by department
+1. Add a `Clustered bar chart` visual.
+2. Drag `Department` to `Axis`.
+3. Drag `Attrition Rate (%)` to `Values`.
+4. In the `Format` pane, set `Data colors` to a red palette.
+5. Sort the chart by `Attrition Rate (%)` descending.
+
+#### Slicer panel
+1. Add four `Slicer` visuals.
+2. Drag these fields into them:
+   - `Department`
+   - `Gender`
+   - `OverTime`
+   - `Attrition`
+3. For each slicer, use the dropdown in the visual header to select `Dropdown` or `List` layout.
+4. Use `View` → `Sync slicers` to make these slicers available on every page.
+
+### Page 2: Employee Demographics & Satisfaction
+
+#### Age histogram with 5-year bins
+1. In the Fields pane, right-click `Age` and choose `New group`.
+2. Choose `Bins` and set `Bin size` to `5`.
+3. Add a `Clustered column chart` visual.
+4. Drag the new `Age (bins)` field to `Axis`.
+5. Drag `EmployeeNumber` to `Values` and ensure it is summarized as `Count`.
+6. In `Format`, set axis titles and data colors to blue.
+
+#### Satisfaction by job role bar chart
+1. Add a `Stacked bar chart` visual.
+2. Drag `JobRole` to `Axis`.
+3. Drag `Average Job Satisfaction` measure to `Values`.
+4. In `Format`, turn on `Data labels` and set `Color` to green.
+5. Sort by `Average Job Satisfaction` descending.
+
+#### MonthlyIncome vs. Attrition scatter plot
+1. Add a `Scatter chart` visual.
+2. Drag `MonthlyIncome` to `X Axis`.
+3. Drag `AttritionFlag` to `Y Axis`.
+4. Drag `Attrition` to `Legend`.
+5. Drag `EmployeeNumber` to `Details`.
+6. In the `Format` pane, set `X-axis` and `Y-axis` titles.
+7. Open the `Analytics` pane and add a `Y constant line` at `0.5` to visually separate attrition from retention.
+8. In the `Tooltip` field, add `Department`, `JobRole`, `MonthlyIncome`, and `Attrition`.
+
+#### WorkLifeBalance × JobSatisfaction matrix
+1. Add a `Matrix` visual.
+2. Drag `WorkLifeBalance` to `Rows`.
+3. Drag `JobSatisfaction` to `Columns`.
+4. Drag `EmployeeNumber` to `Values` and use `Count`.
+5. In `Format`, expand `Conditional formatting` on `Values`.
+6. Turn on `Background color` and choose a red-to-green diverging palette.
+7. Optionally turn on `Data bars` for an additional visual cue.
+
+### Page 3: Risk Factors Deep Dive
+
+#### Overtime vs. attrition stacked bar
+1. Add a `Stacked column chart` visual.
+2. Drag `OverTime` to `Axis`.
+3. Drag `Attrition` to `Legend`.
+4. Drag `EmployeeNumber` to `Values` and summarize as `Count`.
+5. In `Format`, set `Data colors` with red for `Yes` and green for `No`.
+
+#### Years at company line chart with shaded early-tenure area
+1. Add a `Line chart` visual.
+2. Drag `YearsAtCompany` to `Axis`.
+3. Drag `Attrition Rate (%)` to `Values`.
+4. In the `Format` pane, use a blue line color.
+5. If you want a shaded early-tenure region, insert a shape: go to `Insert` → `Shapes` → `Rectangle`.
+6. Place the rectangle behind the first 1–3 years of the chart, set `Fill` to a light color, and set `Transparency` to 70%.
+7. Add a small text box label over the shaded area that reads `Early-tenure risk zone`.
+
+#### High risk employee table with conditional formatting
+1. Add a `Table` visual.
+2. Drag these fields into the table:
+   - `EmployeeNumber`
+   - `Age`
+   - `Department`
+   - `JobRole`
+   - `OverTime`
+   - `JobSatisfaction`
+   - `AttritionFlag`
+   - `IncomeBand`
+3. In `Format`, expand `Conditional formatting`.
+4. Apply `Background color` to `AttritionFlag` using red for `1` and green for `0`.
+5. Apply `Font color` or `Data bars` to `JobSatisfaction` so low values stand out.
+
+#### Business travel column chart
+1. Add a `Clustered column chart` visual.
+2. Drag `BusinessTravel` to `Axis`.
+3. Drag `Attrition Count` to `Values`.
+4. In `Format`, set `Data colors` to red for attrition-focused analysis.
+
+#### Top-N range slicer
+1. Add a `Slicer` visual.
+2. Drag `MonthlyIncome` to the slicer.
+3. In the slicer header, choose `Between`.
+4. Use the range handles to filter the report to the top earners or any income range.
+5. Label this slicer `Income range`.
+
+#### Distance from home scatter plot
+1. Add another `Scatter chart` visual.
+2. Drag `DistanceFromHome` to `X Axis`.
+3. Drag `AttritionFlag` to `Y Axis`.
+4. Drag `MonthlyIncome` to `Size`.
+5. Drag `Attrition` to `Legend`.
+6. In the `Tooltip` field, add `Department`, `JobRole`, `DistanceFromHome`, `MonthlyIncome`, and `Attrition`.
+7. In `Format`, turn on `Data labels` if needed.
 
 ---
 
-## 9) Final Implementation Checklist
+## Final steps
 
-- [ ] Load and profile raw CSV
-- [ ] Apply Power Query cleaning pipeline
-- [ ] Validate types, ranges, and null handling
-- [ ] Build star schema (fact + dimensions)
-- [ ] Create DAX measures and segmentation columns
-- [ ] Build 4-5 report pages with synchronized slicers
-- [ ] Validate KPI outputs against raw aggregates
-- [ ] Publish and share with usage notes
+- Review all pages for consistent colors and fonts.
+- Use `View` → `Sync slicers` to synchronize slicers across Page 1, Page 2, and Page 3.
+- Use `View` → `Mobile Layout` to create a mobile version and arrange the most important visuals for phone view.
+- For accessibility, right-click each visual and choose `Edit alt text`. Provide a short description such as `Attrition rate by department`.
+- Save the Power BI file.
+- Publish the report with `Home` → `Publish`.
 
+This README gives you a complete, UI-first Power BI workflow from raw CSV to published report without writing any code.
